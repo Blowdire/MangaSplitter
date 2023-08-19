@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import logo from './assets/images/logo-universal.png';
 import './App.css';
-import {Greet} from "../wailsjs/go/main/App";
+import {Greet, ChooseFile} from "../wailsjs/go/main/App";
 
 function App() {
     const [resultText, setResultText] = useState("Please enter your name below 👇");
@@ -10,9 +10,11 @@ function App() {
     const updateResultText = (result) => setResultText(result);
 
     function greet() {
-        Greet(name).then(updateResultText);
+        ChooseFile(getProgress)
     }
-
+    function getProgress (progress){
+        console.log('progress', progress)
+    }
     return (
         <div id="App">
             <img src={logo} id="logo" alt="logo"/>
