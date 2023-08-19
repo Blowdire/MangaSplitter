@@ -2,7 +2,11 @@ module changeme
 
 go 1.18
 
-require github.com/wailsapp/wails/v2 v2.5.1
+require (
+	github.com/gen2brain/go-fitz v1.22.2
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
+	github.com/wailsapp/wails/v2 v2.5.1
+)
 
 require (
 	github.com/bep/debounce v1.2.1 // indirect
