@@ -4,9 +4,6 @@ import (
 	"archive/zip"
 	"context"
 	"fmt"
-	"github.com/gen2brain/go-fitz"
-	"github.com/nfnt/resize"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"image"
 	"image/jpeg"
 	"io"
@@ -14,6 +11,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/gen2brain/go-fitz"
+	"github.com/nfnt/resize"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
@@ -37,7 +40,7 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
-func extractImagesFromPDF(pdfPath string, outputFolder string, a *App) {
+func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressionLevel int ) {
 	if err := os.MkdirAll(outputFolder, os.ModePerm); err != nil {
 		fmt.Println("Error creating output directory:", err)
 		return
@@ -51,64 +54,94 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App) {
 		return
 	}
 	defer pdfDocument.Close()
-
-	x := 1
-
+	doneChannel := make(chan struct{}, pdfDocument.NumPage())
+	numberOfSplits := 0
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for pageNumber := 0; pageNumber < pdfDocument.NumPage(); pageNumber++ {
-		//page, err := pdfDocument[pageNumber]
-		//if err != nil {
-		//	fmt.Println("Error accessing page:", err)
-		//	continue
-		//}
-		//images := page.GetImages()
-		images := make([]image.Image, 1)
-		currentImage, err := pdfDocument.Image(pageNumber)
-		if err != nil {
-			fmt.Println("error getting image")
+		wg.Add(1)
+		go func(pageNumber int) {
+			defer func() {
+				doneChannel <- struct{}{}
+			}()
+			images := make([]image.Image, 1)
+			mu.Lock()
+			currentImage, err := pdfDocument.Image(pageNumber)
+			mu.Unlock()
+			if err != nil {
+				fmt.Println("error getting image")
+				return
+			}
+			images[0] = currentImage
+
+			for _, img := range images {
+
+				width := img.Bounds().Max.X
+				height := img.Bounds().Max.Y
+
+				if width > height {
+					singlePageWidth := width / 2
+					mu.Lock() // Lock the mutex before modifying x
+					imageNumber := pageNumber + (2 + numberOfSplits)
+					numberOfSplits++
+					mu.Unlock()
+					leftPage := resize.Resize(uint(singlePageWidth), uint(height), img, resize.Bicubic)
+					leftPagePath := filepath.Join(outputFolder, fmt.Sprintf("%03d_l.jpg", imageNumber))
+					saveImage(leftPage, leftPagePath, compressionLevel)
+
+					rightPage := resize.Resize(uint(singlePageWidth), uint(height), img, resize.Bicubic)
+					rightPagePath := filepath.Join(outputFolder, fmt.Sprintf("%03d_r.jpg", imageNumber))
+					saveImage(rightPage, rightPagePath, compressionLevel)
+					mu.Lock() // Lock the mutex before modifying x
+
+				} else {
+					mu.Lock() // Lock the mutex before modifying x
+					imageNumber := pageNumber + (2 + numberOfSplits)
+
+					mu.Unlock()
+					pagePath := filepath.Join(outputFolder, fmt.Sprintf("%03d.jpg", imageNumber))
+					saveImage(img, pagePath, compressionLevel)
+
+				}
+			}
+			wg.Done()
+
+		}(pageNumber)
+
+	}
+	go func() {
+		wg.Wait()
+		close(doneChannel)
+	}()
+	for i := 0; i < pdfDocument.NumPage(); i++ {
+		select {
+		case <-doneChannel:
+			result := PageResult{PageNumber: i + 1, CurrentTotalPages: pdfDocument.NumPage()}
+			fmt.Println("Page Done", result)
+			runtime.EventsEmit(a.ctx, "pageDone", result)
+		case <-time.After(10 * time.Second):
+			fmt.Println("timeout")
 			continue
 		}
-		images[0] = currentImage
-
-		for imgIndex, img := range images {
-
-			width := img.Bounds().Max.X
-			height := img.Bounds().Max.Y
-
-			if width > height {
-				singlePageWidth := width / 2
-
-				leftPage := resize.Resize(uint(singlePageWidth), 0, img, resize.Lanczos3)
-				leftPagePath := filepath.Join(outputFolder, fmt.Sprintf("page_%03d_%02d.jpg", x, imgIndex))
-				saveImage(leftPage, leftPagePath)
-
-				x++
-				pageNumber := fmt.Sprintf("%03d", x)
-				x++
-
-				rightPage := resize.Resize(uint(singlePageWidth), 0, img, resize.Lanczos3)
-				rightPagePath := filepath.Join(outputFolder, fmt.Sprintf("page_%03d_%02d.jpg", pageNumber, imgIndex))
-				saveImage(rightPage, rightPagePath)
-			} else {
-				pageNumber := fmt.Sprintf("%03d", x)
-				pagePath := filepath.Join(outputFolder, fmt.Sprintf("page_%03d_%02d.jpg", pageNumber, imgIndex))
-				saveImage(img, pagePath)
-				x++
-			}
-		}
-		result := PageResult{PageNumber: pageNumber, CurrentTotalPages: pdfDocument.NumPage()}
-		runtime.EventsEmit(a.ctx, "pageDone", result)
 	}
-}
+	close(doneChannel)
+	
+	fmt.Println("Done")
+	result := PageResult{PageNumber: pdfDocument.NumPage(), CurrentTotalPages: pdfDocument.NumPage()}
+	fmt.Println("Page Done", result)
+	runtime.EventsEmit(a.ctx, "pageDone", result)
+	return 
 
-func saveImage(img image.Image, outputPath string) {
+}
+func saveImage(img image.Image, outputPath string, compressionLevel int) {
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
 		fmt.Println("Error creating output image:", err)
 		return
 	}
 	defer outputFile.Close()
-
-	jpeg.Encode(outputFile, img, nil)
+	options := jpeg.Options{Quality: compressionLevel}
+	jpeg.Encode(outputFile, img, &options)
 }
 
 func compressToZip(folderPath, outputZipPath string) {
@@ -119,7 +152,7 @@ func compressToZip(folderPath, outputZipPath string) {
 	}
 	defer outputFile.Close()
 
-	zipWriter := zip.NewWriter(outputFile)
+	zipWriter := zip.NewWriter(outputFile  )
 	defer zipWriter.Close()
 
 	filepath.Walk(folderPath, func(filePath string, fileInfo os.FileInfo, err error) error {
@@ -143,6 +176,7 @@ func compressToZip(folderPath, outputZipPath string) {
 			}
 
 			fileHeader.Name = filepath.Base(filePath)
+			fileHeader.Method = zip.Deflate
 			writer, err := zipWriter.CreateHeader(fileHeader)
 			if err != nil {
 				fmt.Println("Error creating ZIP entry:", err)
@@ -159,7 +193,7 @@ func compressToZip(folderPath, outputZipPath string) {
 	})
 }
 
-func (a *App) ChooseFile() {
+func (a *App) ChooseFile(compressionLevel int) {
 	filepath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select a PDF file",
 		Filters: []runtime.FileFilter{
@@ -177,10 +211,12 @@ func (a *App) ChooseFile() {
 	fmt.Println(filepath)
 	filename := path.Base(filepath)
 	extension := path.Ext(filename)
+	fileDir := path.Dir(filepath)
 	filenameWithoutExtension := strings.TrimSuffix(filename, extension)
 	fmt.Print(filenameWithoutExtension)
-	// extractImagesFromPDF(filepath, "./"+filenameWithoutExtension, a)
-	// compressToZip("./"+filenameWithoutExtension, "./"+filenameWithoutExtension+".cbz")
+	outTempDir := fileDir + "/" + filenameWithoutExtension
+	extractImagesFromPDF(filepath, outTempDir, a, compressionLevel)
+	compressToZip(outTempDir, outTempDir+".cbz")
 }
 
 type PageResult struct {
