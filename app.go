@@ -58,7 +58,8 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressi
 	numberOfSplits := 0
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for pageNumber := 0; pageNumber < pdfDocument.NumPage(); pageNumber++ {
+	numPages := pdfDocument.NumPage()
+	for pageNumber := 0; pageNumber < numPages; pageNumber++ {
 		wg.Add(1)
 		go func(pageNumber int) {
 			defer func() {
@@ -105,7 +106,6 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressi
 				}
 			}
 			wg.Done()
-
 		}(pageNumber)
 
 	}
@@ -113,14 +113,19 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressi
 		wg.Wait()
 		close(doneChannel)
 	}()
+	numTimeouts := 0
 	for i := 0; i < pdfDocument.NumPage(); i++ {
 		select {
 		case <-doneChannel:
 			result := PageResult{PageNumber: i + 1, CurrentTotalPages: pdfDocument.NumPage()}
 			fmt.Println("Page Done", result)
 			runtime.EventsEmit(a.ctx, "pageDone", result)
-		case <-time.After(10 * time.Second):
+		case <-time.After(5 * time.Second):
 			fmt.Println("timeout")
+			numTimeouts++
+			if numTimeouts >= 2 {
+				break
+			}
 			continue
 		}
 	}
@@ -130,7 +135,6 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressi
 	result := PageResult{PageNumber: pdfDocument.NumPage(), CurrentTotalPages: pdfDocument.NumPage()}
 	fmt.Println("Page Done", result)
 	runtime.EventsEmit(a.ctx, "pageDone", result)
-	return 
 
 }
 func saveImage(img image.Image, outputPath string, compressionLevel int) {
