@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/disintegration/imaging"
 	"github.com/gen2brain/go-fitz"
-	"github.com/nfnt/resize"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -85,11 +85,11 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressi
 					imageNumber := pageNumber + (2 + numberOfSplits)
 					numberOfSplits++
 					mu.Unlock()
-					leftPage := resize.Resize(uint(singlePageWidth), uint(height), img, resize.Bicubic)
+					leftPage := imaging.Crop(img, image.Rect(0, 0, singlePageWidth, img.Bounds().Dy())) 
 					leftPagePath := filepath.Join(outputFolder, fmt.Sprintf("%03d_l.jpg", imageNumber))
 					saveImage(leftPage, leftPagePath, compressionLevel)
 
-					rightPage := resize.Resize(uint(singlePageWidth), uint(height), img, resize.Bicubic)
+					rightPage := imaging.Crop(img, image.Rect(singlePageWidth, 0, width, img.Bounds().Dy()))
 					rightPagePath := filepath.Join(outputFolder, fmt.Sprintf("%03d_r.jpg", imageNumber))
 					saveImage(rightPage, rightPagePath, compressionLevel)
 					mu.Lock() // Lock the mutex before modifying x
@@ -194,7 +194,7 @@ func compressToZip(folderPath, outputZipPath string) {
 }
 
 func (a *App) ChooseFile(compressionLevel int) {
-	filepath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	filepathSel, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select a PDF file",
 		Filters: []runtime.FileFilter{
 			{
@@ -208,14 +208,13 @@ func (a *App) ChooseFile(compressionLevel int) {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(filepath)
-	filename := path.Base(filepath)
+	filename := filepath.Base(filepathSel)
 	extension := path.Ext(filename)
-	fileDir := path.Dir(filepath)
+	fileDir := path.Dir(filepathSel)
 	filenameWithoutExtension := strings.TrimSuffix(filename, extension)
 	fmt.Print(filenameWithoutExtension)
 	outTempDir := fileDir + "/" + filenameWithoutExtension
-	extractImagesFromPDF(filepath, outTempDir, a, compressionLevel)
+	extractImagesFromPDF(filepathSel, outTempDir, a, compressionLevel)
 	compressToZip(outTempDir, outTempDir+".cbz")
 }
 
