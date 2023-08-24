@@ -1,19 +1,10 @@
 # README
 
-## About
+## MangaSplitter
 
-This is the official Wails React template.
+This is a tool that splits the scanned images of a manga in half, where there are scanned double-pages. I've realized this program in order to have a better
+reading experience on my old ebook, because the zoom was very slow and the original double images becomes unreadable.
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+## Installation
 
-## Live Development
-
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
-
-## Building
-
-To build a redistributable, production mode package, use `wails build`.
+To use this tool just download the compiled program from the release section, according to your os.
