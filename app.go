@@ -4,19 +4,20 @@ import (
 	"archive/zip"
 	"context"
 	"fmt"
+	"github.com/disintegration/imaging"
+	"github.com/gen2brain/go-fitz"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"image"
 	"image/jpeg"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/disintegration/imaging"
-	"github.com/gen2brain/go-fitz"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
@@ -40,7 +41,7 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
-func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressionLevel int ) {
+func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressionLevel int) {
 	if err := os.MkdirAll(outputFolder, os.ModePerm); err != nil {
 		fmt.Println("Error creating output directory:", err)
 		return
@@ -86,7 +87,7 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressi
 					imageNumber := pageNumber + (2 + numberOfSplits)
 					numberOfSplits++
 					mu.Unlock()
-					leftPage := imaging.Crop(img, image.Rect(0, 0, singlePageWidth, img.Bounds().Dy())) 
+					leftPage := imaging.Crop(img, image.Rect(0, 0, singlePageWidth, img.Bounds().Dy()))
 					leftPagePath := filepath.Join(outputFolder, fmt.Sprintf("%03d_l.jpg", imageNumber))
 					saveImage(leftPage, leftPagePath, compressionLevel)
 
@@ -124,13 +125,14 @@ func extractImagesFromPDF(pdfPath string, outputFolder string, a *App, compressi
 			fmt.Println("timeout")
 			numTimeouts++
 			if numTimeouts >= 2 {
+				close(doneChannel)
 				break
+
 			}
 			continue
 		}
 	}
-	close(doneChannel)
-	
+
 	fmt.Println("Done")
 	result := PageResult{PageNumber: pdfDocument.NumPage(), CurrentTotalPages: pdfDocument.NumPage()}
 	fmt.Println("Page Done", result)
@@ -156,7 +158,7 @@ func compressToZip(folderPath, outputZipPath string) {
 	}
 	defer outputFile.Close()
 
-	zipWriter := zip.NewWriter(outputFile  )
+	zipWriter := zip.NewWriter(outputFile)
 	defer zipWriter.Close()
 
 	filepath.Walk(folderPath, func(filePath string, fileInfo os.FileInfo, err error) error {
@@ -220,6 +222,21 @@ func (a *App) ChooseFile(compressionLevel int) {
 	outTempDir := fileDir + "/" + filenameWithoutExtension
 	extractImagesFromPDF(filepathSel, outTempDir, a, compressionLevel)
 	compressToZip(outTempDir, outTempDir+".cbz")
+	var cmd *exec.Cmd
+	switch goruntime.GOOS {
+	case "linux":
+		cmd = exec.Command("xdg-open", fileDir)
+	case "windows":
+		cmd = exec.Command("explorer", fileDir)
+	case "darwin":
+		cmd = exec.Command("open", fileDir)
+	}
+	err = cmd.Start()
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return
+
+	}
 }
 
 type PageResult struct {

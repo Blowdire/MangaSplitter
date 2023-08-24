@@ -8,3 +8,7 @@ reading experience on my old ebook, because the zoom was very slow and the origi
 ## Installation
 
 To use this tool just download the compiled program from the release section, according to your os.
+
+## Screenshots
+
+![Screenshot of application](./application.png)
